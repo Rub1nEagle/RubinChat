@@ -1,0 +1,67 @@
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# --- Virtualenvs ----------------------------------------------------------
+.venv/
+venv/
+env/
+.python-version
+
+# --- Tests / coverage / linters ------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+
+# --- Environment / secrets ------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Alembic --------------------------------------------------------------
+# Migrations themselves are versioned; only ignore local cruft.
+backend/alembic/versions/__pycache__/
+
+# --- Docker / runtime data -----------------------------------------------
+*.pid
+*.log
+logs/
+docker-compose.override.yml
+
+# --- IDE / editor ---------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- OS -------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Claude Code workspace -----------------------------------------------
+.claude/settings.local.json
+.claude/projects/
+
+# --- Frontend (none-yet build output, kept for future) -------------------
+frontend/node_modules/
+frontend/dist/

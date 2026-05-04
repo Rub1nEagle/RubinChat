@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * RubinChat — палитра двух тем через CSS-переменные.
+ * Значения хранятся как «r g b», чтобы Tailwind мог собирать `bg-tg-bg/70`
+ * и т. п. через выражение `rgb(var(--tg-bg) / <alpha-value>)`.
+ */
+
+/* Светлая тема — по умолчанию */
+:root {
+    --tg-bg:           255 250 251;
+    --tg-sidebar:      251 247 248;
+    --tg-panel:        255 255 255;
+    --tg-incoming:     243 240 241;
+    --tg-divider:      226 222 224;
+    --tg-surface:      199  31  70;   /* свой пузырь — рубин */
+    --tg-surface-hi:   232  79 112;
+    --tg-accent:       199  31  70;
+    --tg-accent-hover: 173  30  67;
+    --tg-accent-deep:  132  19  50;
+    --tg-muted:        110  98 105;
+    --tg-text:          26  18  22;
+    --tg-success:       76 175  80;
+    --tg-danger:       220  38  38;
+    --tg-unread:       199  31  70;
+}
+
+/* Тёмная тема — на html.dark */
+.dark {
+    --tg-bg:            26  18  22;
+    --tg-sidebar:       26  18  22;
+    --tg-panel:         37  28  32;
+    --tg-incoming:      34  26  30;
+    --tg-divider:       14  10  12;
+    --tg-surface:       94  20  41;
+    --tg-surface-hi:   122  26  54;
+    --tg-accent:       214  43  79;
+    --tg-accent-hover: 232  79 112;
+    --tg-accent-deep:  155  17  54;
+    --tg-muted:        138 121 134;
+    --tg-text:         255 255 255;
+    --tg-success:       79 174  78;
+    --tg-danger:       255 107 107;
+    --tg-unread:       214  43  79;
+}
+
+@layer base {
+    :root {
+        /* Перезаписывается из main.js под реальный window.innerHeight,
+           чтобы интерфейс браузера (адресная строка) не перекрывал чат.
+           До инициализации JS — разумный CSS-фолбэк. */
+        --app-height: 100vh;
+    }
+    @supports (height: 100dvh) {
+        :root { --app-height: 100dvh; }
+    }
+    html, body, #app {
+        height: 100%;
+    }
+    /* На мобилках iOS Safari/Chrome иногда позволяет «оттянуть» весь
+       документ, и под фиксированным интерфейсом чата проявляется
+       пустое голое поле. Закрепляем body неподвижно — внутренний
+       скролл (лента сообщений) от этого не страдает, у него свой
+       overflow-y-auto. */
+    html, body {
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+    body {
+        @apply bg-tg-bg text-tg-text antialiased font-sans transition-colors duration-200;
+    }
+    .dark body {
+        background-image:
+            radial-gradient(circle at 12% -10%, rgba(214, 43, 79, 0.18), transparent 45%),
+            radial-gradient(circle at 110% 110%, rgba(214, 43, 79, 0.10), transparent 55%);
+        background-attachment: fixed;
+    }
+    :root:not(.dark) body {
+        background-image:
+            radial-gradient(circle at 12% -10%, rgba(199, 31, 70, 0.10), transparent 45%),
+            radial-gradient(circle at 110% 110%, rgba(199, 31, 70, 0.06), transparent 55%);
+        background-attachment: fixed;
+    }
+    *::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    .dark *::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+    }
+    .dark *::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.16);
+    }
+    :root:not(.dark) *::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.10);
+        border-radius: 999px;
+    }
+    :root:not(.dark) *::-webkit-scrollbar-thumb:hover {
+        background: rgba(0, 0, 0, 0.18);
+    }
+}
+
+@layer components {
+    .tg-input {
+        @apply w-full bg-tg-panel border border-tg-divider rounded-xl px-4 py-3
+               text-tg-text placeholder:text-tg-muted
+               focus:outline-none focus:border-tg-accent focus:shadow-glow
+               transition-all duration-150;
+    }
+    .tg-button {
+        @apply inline-flex items-center justify-center gap-2
+               rounded-xl px-4 py-2.5 font-semibold
+               bg-tg-accent text-white
+               hover:bg-tg-accentHover active:scale-[0.98]
+               transition-all duration-150
+               disabled:opacity-50 disabled:cursor-not-allowed
+               shadow-ruby;
+    }
+    .tg-button-ghost {
+        @apply inline-flex items-center justify-center gap-2
+               rounded-xl px-3 py-2 font-medium
+               text-tg-text/80 hover:text-tg-text
+               hover:bg-tg-text/5 active:scale-[0.98]
+               transition-all duration-150;
+    }
+    .tg-card {
+        @apply bg-tg-panel/95 backdrop-blur-md border border-tg-divider
+               rounded-2xl shadow-xl;
+    }
+    .tg-bubble {
+        @apply rounded-2xl px-3 py-2 text-[15px] leading-snug shadow-bubble break-words;
+        max-width: min(640px, 85%);
+    }
+    @media (min-width: 768px) {
+        .tg-bubble { max-width: min(640px, 70%); }
+    }
+    .tg-bubble-out {
+        @apply tg-bubble text-white rounded-br-md self-end;
+        background-image: linear-gradient(135deg,
+            rgb(var(--tg-surface-hi)) 0%,
+            rgb(var(--tg-surface)) 100%);
+    }
+    .tg-bubble-in {
+        @apply tg-bubble bg-tg-incoming text-tg-text rounded-bl-md self-start;
+    }
+    .typing-dot {
+        @apply inline-block w-1.5 h-1.5 rounded-full bg-tg-muted;
+        animation: pulseDot 1.2s infinite ease-in-out;
+    }
+}
+
+/* Узор фона ленты сообщений — две темы */
+.tg-pattern {
+    background-color: rgb(var(--tg-bg));
+    background-size: 28px 28px, 56px 56px;
+    background-position: 0 0, 14px 14px;
+}
+.dark .tg-pattern {
+    background-image:
+        radial-gradient(rgba(255, 220, 230, 0.025) 1px, transparent 1px),
+        radial-gradient(rgba(255, 220, 230, 0.018) 1px, transparent 1px);
+}
+:root:not(.dark) .tg-pattern {
+    background-image:
+        radial-gradient(rgba(199, 31, 70, 0.10) 1px, transparent 1px),
+        radial-gradient(rgba(199, 31, 70, 0.06) 1px, transparent 1px);
+}
