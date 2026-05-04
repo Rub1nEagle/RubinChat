@@ -86,15 +86,51 @@ docker-compose run --rm backend alembic revision -m "manual fix"
 
 ## Тесты
 
-В прототипе нет полноценного тест-сьюта, но проще всего запускать
-быстрые проверки крипто-кода прямо из REPL или коротким `python -c`.
-Рекомендуемый минимум для PR'а — добавить:
+В проекте есть pytest-сьют под [`backend/tests/`](../backend/tests/),
+покрывающий три слоя:
 
-* юнит-тесты на новый код (например, `pytest`);
-* round-trip для крипто (хеш детерминирован; encrypt/decrypt
-  совпадают; sign/verify проходят и валятся при искажении).
+| Каталог | Что проверяет |
+| --- | --- |
+| `tests/crypto/` | KAT и round-trip для Стрибога / 28147 / 34.10, сравнение оптимизированных T-table реализаций с эталонными `_LPS_ref` / `_f_ref`, проверка констант PI/TAU против RFC 6986 |
+| `tests/api/` | Полный flow регистрации, логина, смены пароля, удаления; отправка / редактирование / удаление сообщений, пагинация по `before_id`, anti-replay |
+| `tests/test_websocket.py` | Auth по JWT, ack на `send`, доставка `delivery` второму подключённому клиенту, ошибки на невалидных кадрах |
 
-Пример быстрого smoke-теста для крипто:
+### Запуск
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest                          # все тесты
+pytest tests/crypto/ -v         # только крипто
+pytest -k pagination            # по подстроке имени
+```
+
+Сьют не требует Postgres — `conftest.py` поднимает in-memory SQLite
+поверх `aiosqlite` + `StaticPool` и подменяет `app.database.session.engine`
+и `async_session_maker` (включая копию, импортированную в WS-роутер).
+Каждый тест получает свежую БД, а autouse-фикстуры сбрасывают
+nonce-кеш и реестр WebSocket-соединений.
+
+### CI
+
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) гоняет
+сьют на `ubuntu-latest` под Python 3.11 / 3.12 / 3.13 на каждый push в
+`main` и каждый PR. Зависимости кешируются по хешу
+`backend/requirements-dev.txt`.
+
+### Когда писать новый тест
+
+* Новый эндпоинт → API-тест в `tests/api/`.
+* Новая крипто-функция → KAT (фиксированный вектор) + property-тест
+  (round-trip, детерминированность, tamper detection).
+* Любой баг, который выловили вручную, → регрессионный тест перед
+  фиксом. Пагинация по `before_id` и `nonce replay` уже покрыты —
+  ориентируйтесь на них как на образец.
+
+### Пример быстрого smoke-теста для крипто
+
+Если нужна одна проверка без запуска pytest:
 
 ```python
 import asyncio
@@ -109,16 +145,6 @@ async def main():
 
 asyncio.run(main())
 ```
-
-Для добавления полноценных тестов:
-
-```bash
-pip install pytest pytest-asyncio httpx
-pytest backend/tests
-```
-
-Каркас можно положить в `backend/tests/`; точкой входа — `conftest.py`
-с фикстурой `async_client` поверх `httpx.AsyncClient(app=app)`.
 
 ## Полезные команды
 

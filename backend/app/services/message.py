@@ -241,9 +241,13 @@ async def list_for_user(
         )
     if before_id is not None:
         stmt = stmt.where(Message.id < before_id)
+    # `id.desc()` — стабильный tiebreaker: при одинаковом created_at
+    # (рапид-инсёрты в одну миллисекунду в SQLite/тестах) сортировка по
+    # одному только времени даёт неопределённый порядок и срезает не тот
+    # хвост.
     stmt = (
         stmt.options(selectinload(Message.attachment))
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.desc(), Message.id.desc())
         .limit(limit)
     )
     result = await session.execute(stmt)
