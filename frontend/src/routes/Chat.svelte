@@ -143,7 +143,11 @@
     function previewFor(message, decryptedText) {
         const txt = (decryptedText || "").trim();
         if (txt) return txt;
-        if (message?.attachment) return "🖼 Картинка";
+        const att = message?.attachment;
+        if (att) {
+            if (att.mime_type?.startsWith("image/")) return "🖼 Картинка";
+            return `📎 ${att.original_filename || "Файл"}`;
+        }
         return "";
     }
 
@@ -305,12 +309,14 @@
 
     // ───────────────────────── Sending / editing / deleting ─────────────────────────
 
-    function startAttachmentUpload(file, peerId) {
-        // Снимаем превью локально — мгновенно, до начала шифрования.
-        const previewUrl = URL.createObjectURL(file);
+    function startAttachmentUpload(file, peerId, kind = "image") {
+        // Превью локально только для картинок — для файлов оно ни к чему,
+        // да и blob: ссылка на условный pdf только сожрёт память.
+        const previewUrl = kind === "image" ? URL.createObjectURL(file) : null;
         const att = {
             name: file.name,
             size: file.size,
+            kind,
             previewUrl,
             status: "uploading",
             progress: 0,
@@ -333,6 +339,7 @@
                     file,
                     recipientId: peerId,
                     senderPrivateKeyHex: $session.private_key_hex,
+                    kind,
                     onProgress,
                 });
                 // upload закончился — переходим в sealing/ready.
@@ -360,10 +367,13 @@
             _att: att,
             name: att.name,
             size: att.size,
+            kind,
             previewUrl: att.previewUrl,
             status: "uploading",
             progress: 0,
         };
+        // typing-индикатор у нас сейчас умеет text/image; для файлов
+        // пусть пока летит тот же image-сигнал (получатель увидит «отправляет вложение»).
         ws.send({ type: "typing", peer_id: peerId, kind: "image" });
     }
 
@@ -771,7 +781,7 @@
             <Composer
                 editing={editing}
                 attachment={pendingAttachment}
-                on:pickFile={(e) => startAttachmentUpload(e.detail.file, peer.user_id)}
+                on:pickFile={(e) => startAttachmentUpload(e.detail.file, peer.user_id, e.detail.kind)}
                 on:clearAttachment={clearPendingAttachment}
                 on:send={(e) => sendNew(e.detail)}
                 on:editSubmit={(e) => submitEdit(e.detail)}

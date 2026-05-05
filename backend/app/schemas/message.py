@@ -11,6 +11,9 @@ class AttachmentSummary(BaseModel):
     id: int
     mime_type: str
     size_bytes: int
+    # Для картинок не задан — превью рисуется по mime_type. Для файлов
+    # клиент использует это имя в баббле и при «Сохранить как».
+    original_filename: str | None = None
 
 
 class MessageCreate(BaseModel):

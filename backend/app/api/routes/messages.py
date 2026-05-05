@@ -121,14 +121,19 @@ async def mark_read(
 async def upload_attachment(
     recipient_id: int = Form(...),
     sender_private_key_hex: str = Form(..., min_length=64, max_length=64),
+    kind: str = Form("image"),
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db),
     me: User = Depends(current_user),
 ) -> AttachmentSummary:
-    """Загружает картинку, шифрует и подписывает на стороне сервера.
+    """Загружает вложение, шифрует и подписывает на стороне сервера.
+
+    `kind`:
+      * `image` — узкий whitelist mime'ов (jpeg / png / webp / gif),
+      * `file` — произвольный файл, чёрный список опасных типов.
 
     Возвращает идентификатор созданного вложения. Чтобы прикрепить
-    картинку к сообщению, клиент шлёт обычный POST /messages/ с
+    его к сообщению, клиент шлёт обычный POST /messages/ с
     `attachment_id` в теле.
     """
     data = await file.read()
@@ -147,10 +152,17 @@ async def upload_attachment(
             data,
             mime,
             sender_private_key_hex,
+            kind=kind,
+            original_filename=file.filename if kind == "file" else None,
         )
     except AttachmentError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return AttachmentSummary(id=att.id, mime_type=att.mime_type, size_bytes=att.size_bytes)
+    return AttachmentSummary(
+        id=att.id,
+        mime_type=att.mime_type,
+        size_bytes=att.size_bytes,
+        original_filename=att.original_filename,
+    )
 
 
 @router.get("/attachment/{attachment_id}")
@@ -159,10 +171,13 @@ async def get_attachment(
     session: AsyncSession = Depends(get_db),
     me: User = Depends(current_user),
 ) -> Response:
-    """Возвращает расшифрованный blob картинки.
+    """Возвращает расшифрованный blob вложения.
 
-    Сервер проверяет подпись; если она невалидна, отдаёт 409 — клиент
-    должен показать предупреждение, но контент всё равно может прийти.
+    Для картинок (mime начинается с `image/`) — `Content-Disposition: inline`,
+    чтобы браузер показал в `<img>`. Для файлов — `attachment` с RFC 5987
+    кодированным именем, чтобы «Сохранить» предлагало человеческое имя.
+    Сервер проверяет подпись; флаг — в заголовке `X-Signature-Valid`,
+    клиент сам решает, показывать ли предупреждение.
     """
     att = await attachment_service.get_for_user(session, attachment_id, me.id)
     if att is None:
@@ -175,4 +190,17 @@ async def get_attachment(
         "Cache-Control": "private, max-age=86400",
         "X-Signature-Valid": "1" if valid else "0",
     }
+    if att.mime_type.startswith("image/"):
+        headers["Content-Disposition"] = "inline"
+    else:
+        # RFC 5987: имя файла может содержать не-ASCII (кириллица). Браузер
+        # понимает оба `filename` и `filename*`, и при наличии второго
+        # использует его (декодирует UTF-8).
+        from urllib.parse import quote
+
+        name = att.original_filename or f"attachment-{att.id}"
+        ascii_safe = name.encode("ascii", errors="replace").decode("ascii").replace('"', "_")
+        headers["Content-Disposition"] = (
+            f'attachment; filename="{ascii_safe}"; filename*=UTF-8\'\'{quote(name)}'
+        )
     return Response(content=plaintext, media_type=att.mime_type, headers=headers)

@@ -1,23 +1,30 @@
 <script>
     import { createEventDispatcher, tick } from "svelte";
-    import { fly } from "svelte/transition";
+    import { fade, fly } from "svelte/transition";
+    import { portal } from "../lib/portal.js";
     import { compressImage } from "../lib/image.js";
 
     export let disabled = false;
     /** Если задан — композер в режиме редактирования. */
     export let editing = null; // { id, plaintext } | null
     /** Pending-вложение, его жизненным циклом управляет родитель.
-     *  { name, size, previewUrl, status: "compressing" | "uploading" | "ready" | "error", error? } | null */
+     *  { name, size, kind, previewUrl?, status: "compressing" | "uploading" | "ready" | "error", error? } | null */
     export let attachment = null;
 
     let text = "";
     let textarea;
+    let imageInput;
     let fileInput;
+
+    // Меню «скрепка»: { x, y } в координатах вьюпорта; null = закрыто.
+    let attachMenu = null;
+    let attachButton;
 
     const dispatch = createEventDispatcher();
 
-    const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-    const MAX_BYTES = 20 * 1024 * 1024; // до сжатия — щедро. После сжатия сервер всё равно ловит на 5 МБ.
+    const IMAGE_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+    const IMAGE_MAX_BYTES = 20 * 1024 * 1024; // до сжатия — щедро. После сжатия сервер всё равно ловит на 5 МБ.
+    const FILE_MAX_BYTES = 5 * 1024 * 1024;   // ровно как лимит сервера, чтобы не гонять впустую.
 
     async function autosize() {
         await tick();
@@ -41,26 +48,67 @@
         autosize();
     }
 
-    function pickFile() {
+    function openAttachMenu() {
         if (disabled || editing) return;
+        if (!attachButton) return;
+        const r = attachButton.getBoundingClientRect();
+        const MENU_W = 180;
+        const MENU_H = 96; // ≈ две строки меню; уточнится после монтирования
+        // Рисуем меню НАД скрепкой: на мобиле снизу всё закрывает клавиатура
+        // когда композер в фокусе, а тут фокус ещё на textarea.
+        attachMenu = {
+            x: Math.max(8, r.left),
+            y: Math.max(8, r.top - MENU_H - 4),
+        };
+    }
+
+    function closeAttachMenu() {
+        attachMenu = null;
+    }
+
+    function pickPhoto() {
+        closeAttachMenu();
+        imageInput?.click();
+    }
+
+    function pickAnyFile() {
+        closeAttachMenu();
         fileInput?.click();
+    }
+
+    async function onImage(e) {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        e.target.value = "";
+        if (!IMAGE_ALLOWED.has(f.type)) {
+            dispatch("error", "Поддерживаются jpeg / png / webp / gif");
+            return;
+        }
+        if (f.size > IMAGE_MAX_BYTES) {
+            dispatch("error", `Картинка больше ${(IMAGE_MAX_BYTES / 1024 / 1024).toFixed(0)} МБ`);
+            return;
+        }
+        // Сжимаем в браузере, чтобы не нагружать сервер.
+        const compressed = await compressImage(f);
+        dispatch("pickFile", { file: compressed, kind: "image" });
     }
 
     async function onFile(e) {
         const f = e.target.files?.[0];
         if (!f) return;
         e.target.value = "";
-        if (!ALLOWED.has(f.type)) {
-            dispatch("error", "Поддерживаются jpeg / png / webp / gif");
+        if (f.size > FILE_MAX_BYTES) {
+            dispatch("error", `Файл больше ${(FILE_MAX_BYTES / 1024 / 1024).toFixed(0)} МБ`);
             return;
         }
-        if (f.size > MAX_BYTES) {
-            dispatch("error", `Файл больше ${(MAX_BYTES / 1024 / 1024).toFixed(0)} МБ`);
-            return;
-        }
-        // Сжимаем в браузере, чтобы не нагружать сервер.
-        const compressed = await compressImage(f);
-        dispatch("pickFile", { file: compressed });
+        dispatch("pickFile", { file: f, kind: "file" });
+    }
+
+    function formatBytes(n) {
+        if (!Number.isFinite(n)) return "";
+        if (n < 1024) return `${n} Б`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} КБ`;
+        return `${(n / 1024 / 1024).toFixed(1)} МБ`;
     }
 
     function removeAttachment() {
@@ -158,12 +206,20 @@
                 <img src={attachment.previewUrl} alt="превью"
                      class="w-12 h-12 rounded-lg object-cover shrink-0" />
             {:else}
-                <div class="w-12 h-12 rounded-lg bg-tg-text/5 shrink-0"></div>
+                <!-- Файл без превью: иконка-документ. -->
+                <div class="w-12 h-12 rounded-lg bg-tg-accent/10 text-tg-accent
+                            grid place-items-center shrink-0">
+                    <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <path d="M14 2v6h6"/>
+                    </svg>
+                </div>
             {/if}
             <div class="min-w-0 flex-1">
-                <div class="text-sm truncate">{attachment.name || "image"}</div>
+                <div class="text-sm truncate">{attachment.name || (attachment.kind === "file" ? "файл" : "image")}</div>
                 <div class="text-xs text-tg-muted truncate">
-                    {attachment.size ? `${(attachment.size / 1024).toFixed(0)} КБ · ` : ""}{statusLabel}
+                    {attachment.size ? `${formatBytes(attachment.size)} · ` : ""}{statusLabel}
                 </div>
                 {#if attachment.status === "uploading" || attachment.status === "compressing"}
                     <div class="h-1 mt-1 rounded-full bg-tg-text/10 overflow-hidden">
@@ -187,16 +243,18 @@
     <div class="flex items-end gap-1.5 sm:gap-2 max-w-4xl mx-auto">
         {#if !editing}
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-                   bind:this={fileInput} on:change={onFile} class="hidden" />
+                   bind:this={imageInput} on:change={onImage} class="hidden" />
+            <input type="file" bind:this={fileInput} on:change={onFile} class="hidden" />
             <button type="button"
-                    on:click={pickFile}
+                    bind:this={attachButton}
+                    on:click={openAttachMenu}
                     disabled={disabled}
                     class="w-10 h-10 sm:w-12 sm:h-12 rounded-full
                            text-tg-muted hover:text-tg-text hover:bg-tg-text/5
                            grid place-items-center shrink-0
                            disabled:opacity-40 disabled:cursor-not-allowed
                            transition-colors duration-150"
-                    title="Прикрепить картинку">
+                    title="Прикрепить">
                 <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="m21.44 11.05-9.19 9.19a6 6 0 1 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.42a2 2 0 0 1-2.83-2.83l8.49-8.49"/>
@@ -247,3 +305,40 @@
         </button>
     </div>
 </div>
+
+{#if attachMenu}
+    <!-- Через portal, чтобы position:fixed не ломался от transform/filter
+         у предков (Composer внутри bg-tg-panel + grid Chat). -->
+    <div use:portal>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="fixed inset-0 z-40"
+             on:click={closeAttachMenu}
+             on:contextmenu|preventDefault={closeAttachMenu}
+             transition:fade={{ duration: 100 }}>
+        </div>
+        <div class="fixed z-50 min-w-[180px]
+                    bg-tg-panel text-tg-text border border-tg-divider rounded-xl shadow-xl py-1"
+             style="left: {attachMenu.x}px; top: {attachMenu.y}px;"
+             in:fly={{ y: 4, duration: 140 }}>
+            <button class="w-full text-left px-3 py-2 text-sm hover:bg-tg-text/5 flex items-center gap-2"
+                    on:click={pickPhoto}>
+                <svg class="w-4 h-4 text-tg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <path d="M21 15l-5-5L5 21"/>
+                </svg>
+                Фото
+            </button>
+            <button class="w-full text-left px-3 py-2 text-sm hover:bg-tg-text/5 flex items-center gap-2"
+                    on:click={pickAnyFile}>
+                <svg class="w-4 h-4 text-tg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                </svg>
+                Файлы
+            </button>
+        </div>
+    </div>
+{/if}

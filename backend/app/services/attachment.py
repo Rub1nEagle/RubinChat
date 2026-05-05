@@ -18,15 +18,42 @@ class AttachmentError(Exception):
     """Validation, signing, or authorization failure."""
 
 
-# Жёсткий белый список — приватный сервер, без python-magic.
-ALLOWED_MIME = frozenset({
+# Картинки — узкий белый список: фронт уже сжимает превью в JPEG,
+# а пузырь с превью не должен внезапно стать SVG-инъекцией или EXE.
+ALLOWED_IMAGE_MIME = frozenset({
     "image/jpeg",
     "image/png",
     "image/webp",
     "image/gif",
 })
 
+# Файлы — чёрный список потенциально опасных типов. Всё остальное
+# разрешено: пользователи присылают друг другу pdf/docx/zip/архивы и
+# т.п. Сервер не исполняет содержимое, но клиент скачивает blob, и
+# нам не нужны cross-site script-инъекции через свой же домен.
+DENIED_FILE_MIME = frozenset({
+    "text/html",
+    "application/xhtml+xml",
+    "application/javascript",
+    "text/javascript",
+    "application/x-msdownload",
+    "application/x-msdos-program",
+    "application/x-sh",
+})
+
 MAX_BYTES = 5 * 1024 * 1024  # 5 МБ
+
+
+def _validate_image_mime(mime_type: str) -> None:
+    if mime_type not in ALLOWED_IMAGE_MIME:
+        raise AttachmentError("mime type not allowed")
+
+
+def _validate_file_mime(mime_type: str) -> None:
+    if not mime_type:
+        raise AttachmentError("mime type required")
+    if mime_type in DENIED_FILE_MIME:
+        raise AttachmentError("mime type not allowed")
 
 
 async def create_encrypted(
@@ -36,11 +63,18 @@ async def create_encrypted(
     plaintext: bytes,
     mime_type: str,
     sender_private_key_hex: str,
+    *,
+    kind: str = "image",
+    original_filename: str | None = None,
 ) -> Attachment:
     if recipient_id == sender.id:
         raise AttachmentError("cannot send to self")
-    if mime_type not in ALLOWED_MIME:
-        raise AttachmentError("mime type not allowed")
+    if kind == "image":
+        _validate_image_mime(mime_type)
+    elif kind == "file":
+        _validate_file_mime(mime_type)
+    else:
+        raise AttachmentError("unknown attachment kind")
     if not plaintext:
         raise AttachmentError("empty file")
     if len(plaintext) > MAX_BYTES:
@@ -60,11 +94,19 @@ async def create_encrypted(
     encrypted = await provider.encrypt(plaintext, key, nonce)
     signature = await provider.sign(encrypted + nonce, priv)
 
+    # Имя файла полезно только для не-картинок. Имя обрезаем до длины
+    # колонки — длинные имена вроде «final_FINAL_v2 (1).pdf» спокойно
+    # вмещаются, очень длинные мы не пытаемся хранить целиком.
+    stored_filename = None
+    if kind == "file" and original_filename:
+        stored_filename = original_filename[:255]
+
     att = Attachment(
         sender_id=sender.id,
         recipient_id=recipient.id,
         mime_type=mime_type,
         size_bytes=len(plaintext),
+        original_filename=stored_filename,
         nonce=nonce,
         encrypted_data=encrypted,
         signature=signature,
