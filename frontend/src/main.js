@@ -11,26 +11,28 @@ try {
     document.documentElement.classList.add("dark");
 }
 
-// --app-height: высота лейаута, привязанная к РЕАЛЬНОЙ видимой области.
-// Используем window.innerHeight, потому что он сжимается при показе/скрытии
-// адресной строки (и Safari, и Chrome), но НЕ реагирует на экранную
-// клавиатуру (та меняет visualViewport.height, а не innerHeight).
-// Так лейаут перестаёт уезжать за интерфейс браузера, а сам интерфейс
-// не «улетает» при наборе текста.
+// --app-height: высота лейаута, привязанная к ВИДИМОЙ области.
+// Используем visualViewport.height: он сжимается и при показе/скрытии
+// адресной строки, и при появлении экранной клавиатуры. Так чат
+// сжимается ровно на высоту клавиатуры — Composer остаётся над ней,
+// и iOS не форс-скроллит документ, чтобы поднять фокус в видимую зону
+// (именно эта автопрокрутка раньше создавала пустое пространство внизу).
+// Fallback на innerHeight — для совсем старых браузеров.
 function setAppHeight() {
-    document.documentElement.style.setProperty(
-        "--app-height",
-        `${window.innerHeight}px`,
-    );
+    const h = window.visualViewport?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty("--app-height", `${h}px`);
 }
 setAppHeight();
-window.addEventListener("resize", setAppHeight);
 window.addEventListener("orientationchange", setAppHeight);
-// Скрытие/показ адресной строки в Safari/Chrome иногда не дёргает resize,
-// но всегда меняет visualViewport. Подписка на visualViewport.resize
-// не вредит — innerHeight всё равно остаётся стабильным при клавиатуре.
 if (window.visualViewport) {
+    // visualViewport.resize стреляет и при клавиатуре, и при адресной
+    // строке — одного источника достаточно.
     window.visualViewport.addEventListener("resize", setAppHeight);
+    // Когда iOS поднимает визуальный viewport относительно layout-вьюпорта
+    // (автопрокрутка к фокусу), height мог не пересчитаться — слушаем scroll.
+    window.visualViewport.addEventListener("scroll", setAppHeight);
+} else {
+    window.addEventListener("resize", setAppHeight);
 }
 
 const app = new App({
