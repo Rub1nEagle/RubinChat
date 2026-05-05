@@ -3,6 +3,7 @@
     import { formatTime } from "../lib/format.js";
     import MessageMenu from "./MessageMenu.svelte";
     import AttachmentImage from "./AttachmentImage.svelte";
+    import AttachmentFile from "./AttachmentFile.svelte";
 
     export let message;     // { id, sender_id, recipient_id, plaintext, signature_valid, created_at, edited_at, read_at, ... }
     export let mine = false;
@@ -67,7 +68,11 @@
         />
 
         {#if message.attachment}
-            <AttachmentImage attachment={message.attachment} />
+            {#if message.attachment.mime_type?.startsWith("image/")}
+                <AttachmentImage attachment={message.attachment} />
+            {:else}
+                <AttachmentFile attachment={message.attachment} />
+            {/if}
         {/if}
 
         {#if message.plaintext == null}

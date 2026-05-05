@@ -114,16 +114,21 @@ export const messages = {
     remove: (id) => api.del(`/api/messages/${id}`),
     markRead: (peerId) => api.post(`/api/messages/read?peer_id=${peerId}`),
     conversations: () => api.get("/api/messages/conversations"),
-    /** Загрузить картинку: server-side seal/sign по схеме проекта.
+    /** Загрузить вложение: server-side seal/sign по схеме проекта.
      *  Через XHR, чтобы знать прогресс HTTP-upload (для UI «N%»).
-     *  Возвращает { id, mime_type, size_bytes }. */
-    upload: ({ file, recipientId, senderPrivateKeyHex, onProgress }) =>
+     *  `kind`: "image" — картинка (сжимается на клиенте, узкий whitelist
+     *  на сервере), "file" — произвольный файл (имя сохраняется).
+     *  Возвращает { id, mime_type, size_bytes, original_filename }. */
+    upload: ({ file, recipientId, senderPrivateKeyHex, kind = "image", onProgress }) =>
         new Promise((resolve, reject) => {
             const $session = get(session);
             const fd = new FormData();
             fd.append("recipient_id", String(recipientId));
             fd.append("sender_private_key_hex", senderPrivateKeyHex);
-            fd.append("file", file, file.name || "image");
+            fd.append("kind", kind);
+            // file.name важен для kind=file: сервер сохранит его в
+            // original_filename и проставит в Content-Disposition при отдаче.
+            fd.append("file", file, file.name || (kind === "file" ? "file" : "image"));
             const xhr = new XMLHttpRequest();
             xhr.open("POST", "/api/messages/upload");
             if ($session?.token) {
