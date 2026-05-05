@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,7 +145,10 @@ async def upload_attachment(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="file too large",
         )
-    mime = file.content_type or ""
+    # Браузеры обычно заполняют content_type, но не всегда (редкие
+    # расширения или CLI-клиент через curl без `-H`). Дефолт — общий
+    # «бинарь», иначе валидация порежет валидную загрузку.
+    mime = file.content_type or "application/octet-stream"
     try:
         att = await attachment_service.create_encrypted(
             session,
@@ -189,6 +194,10 @@ async def get_attachment(
     headers = {
         "Cache-Control": "private, max-age=86400",
         "X-Signature-Valid": "1" if valid else "0",
+        # nosniff: запрещаем браузеру угадывать тип по содержимому. Без
+        # этого старый IE/Edge мог увидеть HTML-теги в blob'е и решить,
+        # что это text/html, в обход нашего Content-Disposition.
+        "X-Content-Type-Options": "nosniff",
     }
     if att.mime_type.startswith("image/"):
         headers["Content-Disposition"] = "inline"
@@ -196,8 +205,6 @@ async def get_attachment(
         # RFC 5987: имя файла может содержать не-ASCII (кириллица). Браузер
         # понимает оба `filename` и `filename*`, и при наличии второго
         # использует его (декодирует UTF-8).
-        from urllib.parse import quote
-
         name = att.original_filename or f"attachment-{att.id}"
         ascii_safe = name.encode("ascii", errors="replace").decode("ascii").replace('"', "_")
         headers["Content-Disposition"] = (
