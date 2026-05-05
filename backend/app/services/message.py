@@ -57,7 +57,12 @@ _nonce_cache = _NonceCache()
 def _attachment_summary(att: Attachment | None) -> AttachmentSummary | None:
     if att is None:
         return None
-    return AttachmentSummary(id=att.id, mime_type=att.mime_type, size_bytes=att.size_bytes)
+    return AttachmentSummary(
+        id=att.id,
+        mime_type=att.mime_type,
+        size_bytes=att.size_bytes,
+        original_filename=att.original_filename,
+    )
 
 
 def _to_out(msg: Message, attachment: Attachment | None = None) -> MessageOut:

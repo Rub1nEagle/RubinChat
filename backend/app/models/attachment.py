@@ -9,11 +9,13 @@ from ..database.base import Base
 
 
 class Attachment(Base):
-    """Зашифрованный файл-вложение (картинка) к сообщению.
+    """Зашифрованное вложение к сообщению (картинка или произвольный файл).
 
-    По схеме проекта сервер сам выполняет seal/unseal. Файл шифруется
-    тем же conversation-key (Streebog от sorted user_id) и подписывается
-    личным ключом отправителя — точно как текстовые сообщения.
+    По схеме проекта сервер сам выполняет seal/unseal. Содержимое
+    шифруется тем же conversation-key (Streebog от sorted user_id) и
+    подписывается личным ключом отправителя — точно как текстовые
+    сообщения. ``original_filename`` нужен для НЕ-картинок: клиент
+    показывает его в пузыре и подставляет при скачивании.
     """
 
     __tablename__ = "attachments"
@@ -26,8 +28,11 @@ class Attachment(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
 
-    mime_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_filename: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None
+    )
 
     nonce: Mapped[bytes] = mapped_column(LargeBinary(8), nullable=False)
     encrypted_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
