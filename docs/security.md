@@ -31,8 +31,23 @@ RubinChat — это **учебный** прототип. Документ ни�
   это страховка от silent corruption после правок крипто-кода.
 * **Валидация ввода**: все JSON-схемы прописаны в Pydantic, длины
   hex-полей фиксированы, имена пользователей ограничены
-  `[A-Za-z0-9_.-]`. На вложениях — allow-list MIME (jpeg/png/webp/gif),
-  лимит 5 МБ (картинки) и 2 МБ (аватары).
+  `[A-Za-z0-9_.-]`. На вложениях — две разные политики:
+  * `kind=image` — узкий allow-list MIME (jpeg/png/webp/gif), чтобы
+    превью в баббле не превратилось в SVG-инъекцию;
+  * `kind=file` — чёрный список потенциально опасных типов
+    (`text/html`, `application/xhtml+xml`, `application/javascript`,
+    `text/javascript`, `application/x-msdownload`,
+    `application/x-msdos-program`, `application/x-sh`) — иначе
+    отправитель смог бы захостить XSS на нашем же origin через
+    blob-URL получателя.
+
+  Размер любого вложения ограничен 5 МБ, аватара — 2 МБ.
+* **`X-Content-Type-Options: nosniff` на выдаче вложений** — закрывает
+  старый трюк MIME-sniffing'а (Edge/IE мог увидеть HTML-теги в
+  расшифрованном blob'е и решить, что это `text/html`, обходя
+  `Content-Disposition: attachment`). Имя файла в `Content-Disposition`
+  для не-картинок кодируется по RFC 5987 (`filename*=UTF-8''…`), чтобы
+  кириллические имена доезжали без артефактов.
 
 ## Что работает условно
 

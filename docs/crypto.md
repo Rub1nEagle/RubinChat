@@ -300,7 +300,8 @@ async def conversation_key(a: int, b: int) -> bytes:
 Один и тот же модуль используется и серверными crypto-эндпоинтами
 (`/seal`, `/unseal`, `/unseal-batch`), и сервисом вложений
 ([`services/attachment.py`](../backend/app/services/attachment.py)) —
-поэтому картинки и тексты в одном диалоге шифруются на одном ключе.
+поэтому тексты и любые вложения (картинки, файлы) в одном диалоге
+шифруются на одном ключе.
 
 > Это **учебный шорткат** вместо настоящего E2EE: сервер всегда может
 > восстановить ключ. В боевой системе ключ выводился бы клиентами по
@@ -312,5 +313,5 @@ async def conversation_key(a: int, b: int) -> bytes:
 | Алгоритм | Где «вызывается» |
 | --- | --- |
 | Стрибог-256 | `services/auth.py` (вывод ключа из пароля), `gost3410/signature.py` (хеш сообщения), `crypto/conversation.py` (ключ беседы), `routes/crypto.py` (fingerprint от сортированных pubkey) |
-| ГОСТ 28147 + CTR | `services/auth.py` (шифрование приватного ключа), `routes/crypto.py` (seal/unseal сообщений), `services/attachment.py` (картинки) |
-| ГОСТ 34.10 | `routes/crypto.py` (`seal` подписывает, `unseal`/`store_message` проверяют), `services/attachment.py` (подпись картинок) |
+| ГОСТ 28147 + CTR | `services/auth.py` (шифрование приватного ключа), `routes/crypto.py` (seal/unseal сообщений), `services/attachment.py` (шифрование вложений — картинок и файлов) |
+| ГОСТ 34.10 | `routes/crypto.py` (`seal` подписывает, `unseal`/`store_message` проверяют), `services/attachment.py` (подпись вложений) |

@@ -58,7 +58,7 @@ FastAPI получает сессию через зависимость `get_db(
 | `created_at` | `TIMESTAMPTZ` | `DEFAULT now()` |
 | `edited_at` | `TIMESTAMPTZ NULL` | момент последнего `PATCH /api/messages/{id}` |
 | `read_at` | `TIMESTAMPTZ NULL` | момент чтения получателем (`POST /api/messages/read`) |
-| `attachment_id` | `FK attachments.id ON DELETE SET NULL` | опциональная картинка |
+| `attachment_id` | `FK attachments.id ON DELETE SET NULL` | опциональное вложение (картинка или файл) |
 
 Индексы:
 * `ix_messages_recipient_id_created_at` — `(recipient_id, created_at DESC)`,
@@ -70,16 +70,18 @@ FastAPI получает сессию через зависимость `get_db(
 
 ### `attachments`
 
-Зашифрованные картинки. Содержимое запечатано тем же conversation-key,
-что и текстовые сообщения (см. [`crypto.md`](crypto.md)).
+Зашифрованные вложения — и картинки, и произвольные файлы. Содержимое
+запечатано тем же conversation-key, что и текстовые сообщения (см.
+[`crypto.md`](crypto.md)).
 
 | Колонка | Тип | Описание |
 | --- | --- | --- |
 | `id` | `INTEGER PK` | автоинкремент |
 | `sender_id` | `FK users.id ON DELETE CASCADE` | отправитель |
 | `recipient_id` | `FK users.id ON DELETE CASCADE` | получатель |
-| `mime_type` | `VARCHAR(64)` | один из allow-list: jpeg/png/webp/gif |
+| `mime_type` | `VARCHAR(128)` | для `kind=image` — узкий whitelist (jpeg/png/webp/gif); для `kind=file` — всё кроме чёрного списка опасных типов. Ширина 128 — чтобы влезли длинные mime вроде `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
 | `size_bytes` | `INTEGER` | размер исходного открытого файла |
+| `original_filename` | `VARCHAR(255) NULL` | сохраняется только для `kind=file`; у картинок `NULL`. Используется в `Content-Disposition` при выдаче и в баббле клиента |
 | `nonce` | `BYTEA(8)` | nonce CTR |
 | `encrypted_data` | `BYTEA` | шифртекст |
 | `signature` | `BYTEA(64)` | подпись `(encrypted_data \|\| nonce)` |
@@ -129,7 +131,8 @@ backend/
         ├── 0004_attachments.py
         ├── 0005_user_avatar.py
         ├── 0006_drop_user_avatar.py
-        └── 0007_restore_user_avatar.py
+        ├── 0007_restore_user_avatar.py
+        └── 0008_attachment_filename.py
 ```
 
 ### env.py
@@ -186,6 +189,7 @@ docker compose run --rm backend alembic revision --autogenerate -m "..."
 | `0005_user_avatar` | добавляет `users.avatar_data`, `avatar_mime`, `avatar_version` |
 | `0006_drop_user_avatar` | (исторический артефакт) дроп аватарных колонок — феномен «фича была откачена и вернулась» |
 | `0007_restore_user_avatar` | возвращает аватарные колонки через `ADD COLUMN IF NOT EXISTS`; идемпотентен на любом контуре |
+| `0008_attachment_filename` | добавляет `attachments.original_filename` (для не-картинок) и расширяет `attachments.mime_type` до `VARCHAR(128)` под длинные Office-mime |
 
 ## Сессии
 

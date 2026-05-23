@@ -44,9 +44,11 @@ frontend/
 │   │   ├── MessageMenu.svelte        ПКМ + 3-точки, fixed-positioned dropdown
 │   │   ├── MessageInfoModal.svelte   «Информация о сообщении» с коллапсом «Безопасность»
 │   │   ├── ProfileModal.svelte       профиль с био, аватаром, fingerprint
-│   │   ├── AttachmentImage.svelte    рендерит расшифрованную картинку через blob-URL
-│   │   ├── Composer.svelte           ввод + скрепка + превью; не блокируется во время upload
-│   │   ├── SendingAttachments.svelte баннер «фото отправляется N%» с разворотом для нескольких
+│   │   ├── AttachmentImage.svelte    расшифрованная картинка через blob-URL
+│   │   ├── AttachmentFile.svelte     баббл-кнопка с иконкой документа: имя/размер, по клику скачивает blob
+│   │   ├── ImageViewerModal.svelte   полноэкранный просмотрщик картинки (через portal)
+│   │   ├── Composer.svelte           ввод + скрепка → меню «Фото / Файлы» + превью; не блокируется во время upload
+│   │   ├── SendingAttachments.svelte баннер «отправляется N%» с разворотом для нескольких вложений
 │   │   └── ConfirmDialog.svelte      собственная модалка подтверждения
 │   └── lib/
 │       ├── router.js       SPA-роутер (path store + navigate)
@@ -54,7 +56,8 @@ frontend/
 │       ├── api.js          обёртка fetch + REST-методы; XHR с onProgress для upload
 │       ├── ws.js           WebSocket-клиент с автореконнектом
 │       ├── format.js       время, дата, инициалы, цвет аватарки, plural, groupHex
-│       └── image.js        клиентский ресайз/JPEG-сжатие перед отправкой
+│       ├── image.js        клиентский ресайз/JPEG-сжатие перед отправкой
+│       └── portal.js       Svelte-action: переносит DOM-узел в body (для модалок/меню над transform-предками)
 └── public/                 статика, копируется в dist как есть
 ```
 
@@ -151,12 +154,18 @@ ruby-градиентом), `.tg-bubble-in`, `.tg-input`, `.tg-button`,
 ## Адаптивная высота под мобильные браузеры
 
 [`main.js`](../frontend/src/main.js) обновляет CSS-переменную
-`--app-height` из `window.innerHeight` на `resize` и `orientationchange`.
-`Chat.svelte` использует `style="height: var(--app-height)"`. Так
-интерфейс не уезжает за адресную строку iOS / Chrome, но и **не
-дёргается** при появлении экранной клавиатуры (`innerHeight` от неё не
-меняется, в отличие от `visualViewport.height`). До инициализации JS
-действует CSS-фолбэк `100vh` / `100dvh` — на современных браузерах.
+`--app-height` из `window.visualViewport.height` (с фолбэком на
+`window.innerHeight`) на `resize`, `scroll` визуального вьюпорта и
+`orientationchange`. `Chat.svelte` использует
+`style="height: var(--app-height)"`.
+
+`visualViewport.height` сжимается **и** при появлении адресной строки
+iOS / Chrome, **и** при экранной клавиатуре. Это и нужно: чат
+ужимается ровно на высоту клавиатуры, Composer остаётся над ней, и
+iOS перестаёт принудительно скроллить документ, чтобы поднять фокус —
+именно эта автопрокрутка раньше оставляла снизу пустое поле. До
+инициализации JS действует CSS-фолбэк `100vh` / `100dvh` —
+на современных браузерах.
 
 ## Ввод сообщения
 
@@ -164,14 +173,23 @@ ruby-градиентом), `.tg-bubble-in`, `.tg-input`, `.tg-button`,
 
 * `<textarea>` с авторесайзом до 160 px; Enter — отправка, Shift+Enter
   — перенос.
-* Кнопка-скрепка слева открывает picker. Выбранный файл сжимается на
-  клиенте через [`lib/image.js`](../frontend/src/lib/image.js)
-  (Canvas → JPEG 85% / 2000 px) и сразу диспатчится в `Chat.svelte`,
-  где стартует фоновая загрузка.
+* Кнопка-скрепка слева открывает выпадающее меню **«Фото / Файлы»**.
+  Меню рисуется НАД скрепкой через [`portal`](../frontend/src/lib/portal.js)
+  + `position: fixed` — иначе `transform`-предки (Composer внутри
+  `bg-tg-panel` + grid Chat) сломали бы fixed-позиционирование. На
+  мобиле меню всё равно открывается вверх, чтобы клавиатура его не
+  закрывала.
+* Под капотом — два разных `<input type="file">`:
+  * **Фото** — `accept="image/jpeg,image/png,image/webp,image/gif"`,
+    лимит 20 МБ до сжатия; затем [`lib/image.js`](../frontend/src/lib/image.js)
+    ужимает Canvas → JPEG 85 % / 2000 px и диспатчит `pickFile` с
+    `kind: "image"`.
+  * **Файлы** — без `accept`, лимит 5 МБ (ровно как у сервера, чтобы
+    не гонять впустую); диспатчит `pickFile` с `kind: "file"`.
 * Состояние `attachment` приходит сверху (`Chat.svelte`), Composer
   показывает превью + статус (compressing / uploading N% / sealing).
-  Текстовое поле **не блокируется** во время загрузки — можно набирать
-  подпись.
+  У файлов превью — иконка-документ. Текстовое поле **не блокируется**
+  во время загрузки — можно набирать подпись.
 * `dispatch("send", { text })` запускает отправку: родитель ждёт
   promise загрузки (если есть), берёт `attachment_id`, шифрует текст
   через `crypto.seal` и шлёт WS-`send` (или REST fallback'ом).
@@ -206,20 +224,29 @@ ruby-градиентом), `.tg-bubble-in`, `.tg-input`, `.tg-button`,
 `[ошибка расшифровки: …]`, и в баббле появляется красный значок
 «⚠ подпись».
 
-## Картинки
+## Картинки и файлы
 
-* [`AttachmentImage.svelte`](../frontend/src/components/AttachmentImage.svelte)
-  на mount качает `GET /api/messages/attachment/{id}` (`fetch` с
-  Bearer'ом), создаёт `URL.createObjectURL` и подставляет в `<img>`.
-  Если бэкенд вернул `X-Signature-Valid: 0` — рисуем «⚠ подпись».
 * В [`MessageBubble.svelte`](../frontend/src/components/MessageBubble.svelte)
-  компонент рендерится сверху, текст-подпись (если есть) — снизу.
-* Загрузка к собеседнику: Composer диспатчит файл, `Chat.svelte`
-  стартует фоновую загрузку с `XMLHttpRequest.upload.onprogress`. Над
-  Composer'ом показывается баннер
+  выбор рендера зависит от `attachment.mime_type`:
+  - `image/*` → [`AttachmentImage.svelte`](../frontend/src/components/AttachmentImage.svelte)
+    на mount качает `GET /api/messages/attachment/{id}` (`fetch` с
+    Bearer'ом), создаёт `URL.createObjectURL` и подставляет в `<img>`.
+    Если бэкенд вернул `X-Signature-Valid: 0` — рисуем «⚠ подпись».
+  - всё остальное → [`AttachmentFile.svelte`](../frontend/src/components/AttachmentFile.svelte):
+    карточка с иконкой-документом, оригинальным именем и размером. По
+    клику качает blob через `messagesApi.fetchAttachmentBlob`, создаёт
+    `<a download={original_filename}>` и кликает по нему программно;
+    `URL.revokeObjectURL` отложен на 1 с — чтобы Safari успел начать
+    загрузку.
+  Текст-подпись (если есть) рендерится под вложением.
+* Загрузка к собеседнику: Composer диспатчит файл с `kind`,
+  `Chat.svelte` стартует фоновую загрузку с
+  `XMLHttpRequest.upload.onprogress` (превью локально создаётся только
+  для картинок — для файла blob-URL ни к чему). Над Composer'ом
+  показывается баннер
   [`SendingAttachments.svelte`](../frontend/src/components/SendingAttachments.svelte)
-  с прогресс-баром; если в полёте несколько фото — баннер сворачивается
-  в «Отправляется N фото» с разворотом списка.
+  с прогресс-баром; если в полёте несколько вложений — баннер
+  сворачивается с разворотом списка.
 
 ## Аватары
 
@@ -268,5 +295,6 @@ Dockerfile, итог копируется в backend-контейнер по п�
   origin.
 * Не сохраняет историю локально — каждое открытие чата заново тянет
   список через REST.
-* Нет push-уведомлений / звуков / typing-индикатора — только визуальное
-  появление сообщения.
+* Нет push-уведомлений и звуков. Typing-индикатор и presence
+  (онлайн/был N минут назад) — эфемерные, идут через тот же
+  WebSocket-канал, см. [websocket.md](websocket.md#сервер--клиент).

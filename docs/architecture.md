@@ -90,12 +90,19 @@ payload, подпись и nonce. Шаг 4 происходит и у получ
 один пакет старых сообщений через курсор `before_id` — и снова
 unseal-batch.
 
-## Поток запроса — отправка картинки
+## Поток запроса — отправка вложения
+
+Под «вложением» понимается и картинка, и произвольный файл — отличие
+только в политике валидации MIME и в заголовке `Content-Disposition`
+при отдаче.
 
 ```
-1. Браузер: image.js ужимает картинку до JPEG-85 / 2000 px
+1. Браузер: для kind=image — image.js ужимает картинку до JPEG-85 / 2000 px.
+            Для kind=file — берём байты как есть.
 2. Браузер  ─POST /api/messages/upload (multipart, XHR + onProgress)─►
                                           routes/messages.upload_attachment
+                                            ├─ kind=image: whitelist MIME
+                                            ├─ kind=file:  blacklist MIME + сохраняет original_filename
                                             └─► services.attachment.create_encrypted
                                                  ├─ conversation_key()
                                                  ├─ provider.encrypt
@@ -109,10 +116,13 @@ unseal-batch.
                                                             ├─ provider.verify
                                                             └─ provider.decrypt
                                                        Response с Content-Type=...
-                                                       Header X-Signature-Valid: 0|1
+                                                       X-Signature-Valid: 0|1
+                                                       X-Content-Type-Options: nosniff
+                                                       Content-Disposition: inline  (image/*)
+                                                                            | attachment; filename*=UTF-8''…
 ```
 
-Картинка **никогда** не идёт по WebSocket. Сообщение и attachment_id
+Вложение **никогда** не идёт по WebSocket. Сообщение и `attachment_id`
 ссылочные.
 
 ## Модель параллелизма

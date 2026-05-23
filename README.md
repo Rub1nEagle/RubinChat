@@ -94,14 +94,16 @@ RubinChat/
 │   │   ├── database/       async-движок и фабрика сессий
 │   │   ├── websocket/      менеджер соединений и эндпоинт
 │   │   └── main.py         фабрика приложения FastAPI + SPA fallback
-│   ├── alembic/            асинхронные миграции (0001..0007)
+│   ├── alembic/            асинхронные миграции (0001..0008)
 │   ├── requirements.txt
 │   └── Dockerfile          multi-stage: Node + Python
 ├── frontend/               Svelte 4 + Vite + Tailwind CSS, рубиновая палитра
 │   ├── src/
 │   │   ├── routes/         Login / Register / Chat
 │   │   ├── components/     Avatar, ContactList, MessageList/Bubble/Menu,
-│   │   │                   Composer, AttachmentImage, SendingAttachments,
+│   │   │                   Composer (скрепка → меню «Фото / Файлы»),
+│   │   │                   AttachmentImage, AttachmentFile,
+│   │   │                   ImageViewerModal, SendingAttachments,
 │   │   │                   PasswordInput, ConfirmDialog, ChatHeader,
 │   │   │                   ProfileModal, MessageInfoModal, AuthLayout
 │   │   ├── lib/            api / ws / stores / router / format / image
@@ -125,8 +127,16 @@ RubinChat/
 * Контакты с поиском по всей базе пользователей; в основном списке —
   только активные переписки.
 * Текстовые сообщения с шифрованием ГОСТ 28147 + ЭЦП ГОСТ 34.10.
-* **Картинки** — сжимаются в браузере, шифруются и подписываются на
-  сервере по той же схеме; передаются по `attachment_id`.
+* **Вложения** двух видов через одну ручку `POST /api/messages/upload`:
+  * `kind=image` — картинки (узкий whitelist jpeg/png/webp/gif),
+    клиент перед отправкой ужимает в JPEG 85 % / 2000 px;
+  * `kind=file` — произвольные файлы до 5 МБ, опасные mime
+    (html/js/exe/sh) на чёрном списке; сохраняется оригинальное имя,
+    при скачивании отдаётся `Content-Disposition: attachment` с RFC 5987
+    UTF-8 именем + `X-Content-Type-Options: nosniff`.
+
+  И то, и другое шифруется и подписывается на сервере и линкуется к
+  сообщению через `attachment_id`.
 * **Бесконечная подгрузка** старых сообщений при скролле вверх через
   курсор `before_id`.
 * **Совместный safety-number** (как в Signal): хеш Стрибог-256 от

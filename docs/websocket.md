@@ -48,7 +48,11 @@ Client                         Server
 
 ## Конверт сообщения
 
-Все WS-сообщения — это JSON одной формы:
+Часть сообщений валидируется Pydantic-схемой `MessageWS` (всё, что
+связано с самими сообщениями); часть — эфемерные индикаторы — идёт
+свободным JSON-объектом, чтобы не разбухать схема ради двух полей.
+
+Схема `MessageWS`:
 
 ```ts
 type MessageWS = {
@@ -60,29 +64,61 @@ type MessageWS = {
 };
 ```
 
+Эфемерные обёртки:
+
+```ts
+type Typing = {
+    type: "typing";
+    peer_id: number;        // у клиент→сервер — куда печатают, у сервер→клиент — кто печатает
+    kind: "text" | "image"; // что именно: текст или вложение
+};
+
+type Presence = {
+    type: "presence";
+    user_id: number;
+    is_online: boolean;
+    last_seen_at: string | null;  // ISO; null, если пользователь только что зашёл
+};
+```
+
 `MessageOut` совпадает по форме с REST-эндпоинтом
 [`GET /api/messages/`](api.md#сообщения).
 
 ### Клиент → Сервер
 
-Клиент шлёт только `type: "send"`:
+Клиент шлёт два типа кадров:
 
-```json
-{
-  "type": "send",
-  "payload": {
-    "recipient_id": 2,
-    "encrypted_payload_hex": "...",
-    "nonce_hex": "...",
-    "signature_hex": "...",
-    "attachment_id": 42
+* **`type: "send"`** — обычная отправка сообщения:
+
+  ```json
+  {
+    "type": "send",
+    "payload": {
+      "recipient_id": 2,
+      "encrypted_payload_hex": "...",
+      "nonce_hex": "...",
+      "signature_hex": "...",
+      "attachment_id": 42
+    }
   }
-}
-```
+  ```
 
-`payload` — это в точности `MessageCreate` (тот же, что у POST
-`/api/messages/`); `attachment_id` опционален. Любой другой `type` от
-клиента приводит к ответу `{"type":"error","error":"unsupported message type"}`.
+  `payload` — это в точности `MessageCreate` (тот же, что у POST
+  `/api/messages/`); `attachment_id` опционален.
+
+* **`type: "typing"`** — индикатор «печатает / отправляет вложение».
+  Не персистится, не валидирует подпись, отправляется второй стороне
+  только если та сейчас в онлайне.
+
+  ```json
+  { "type": "typing", "peer_id": 2, "kind": "text" }
+  ```
+
+  Клиент сам дросселирует «typing» (не чаще раза в 2.5 с), чтобы не
+  спамить WS на каждый нажатый символ.
+
+Любой другой `type` от клиента приводит к ответу
+`{"type":"error","error":"unsupported message type"}`.
 
 ### Сервер → Клиент
 
@@ -93,11 +129,19 @@ type MessageWS = {
 | `update` | После `PATCH /api/messages/{id}` (рассылается обеим сторонам) | `message` |
 | `delete` | После `DELETE /api/messages/{id}` (рассылается обеим сторонам) | `message_id`, `peer_id = sender_id` |
 | `read` | Когда собеседник пометил все наши сообщения прочитанными | `peer_id` = id того, кто прочитал |
+| `typing` | Собеседник набирает текст или отправляет вложение | `peer_id` = id того, кто печатает; `kind` = `"text"` или `"image"` |
+| `presence` | Один из пользователей зашёл / вышел | `user_id`, `is_online`, `last_seen_at` (ISO или `null`) |
 | `error` | Невалидный конверт, плохая подпись, replay-nonce | `error` |
 
 `update` / `delete` / `read` приходят и через WS-канал, и могут быть
 получены, даже если их вызвал REST-запрос соседней вкладки того же
 пользователя.
+
+`presence` рассылается всем подключённым пользователям, кроме самого
+виновника события — этого хватает, чтобы зелёная точка / «был N минут
+назад» обновлялись у собеседников без перезагрузки страницы. Снимок
+`is_online` в `UserProfile` приходит из того же `ConnectionManager`,
+который рассылает `presence`.
 
 ## Реализация на сервере
 
@@ -130,9 +174,10 @@ type MessageWS = {
 * Не сжимает.
 * Не дробит длинные сообщения — лимит длины задаётся в Pydantic-схеме
   `MessageCreate` и проверяется до записи.
-* Не транспортирует вложения по WS — картинка сначала загружается через
-  `POST /api/messages/upload` (получаем `attachment_id`), и только
-  потом WS-`send` ссылается на этот id.
+* Не транспортирует вложения по WS — картинка/файл сначала загружается
+  через `POST /api/messages/upload` (получаем `attachment_id`), и
+  только потом WS-`send` ссылается на этот id.
 * Не реализует heartbeat: разрыв детектится самим WebSocket-уровнем, и
   клиент пытается переподключиться.
-* Не доставляет typing-индикатор и offline-очередь.
+* Не реализует offline-очередь: пока пользователь не подключён,
+  `typing` и `presence`-события до него просто не доезжают.

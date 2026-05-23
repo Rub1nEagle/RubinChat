@@ -254,8 +254,20 @@ TOKEN="<значение access_token>"
 }
 ```
 
-Если у сообщения есть картинка, `attachment` имеет вид
-`{ "id": 42, "mime_type": "image/jpeg", "size_bytes": 245678 }`.
+Если у сообщения есть вложение, `attachment` имеет вид
+
+```json
+{
+  "id": 42,
+  "mime_type": "image/jpeg",
+  "size_bytes": 245678,
+  "original_filename": null
+}
+```
+
+`original_filename` равен `null` у картинок (имя клиенту не нужно — превью
+рисуется по `mime_type`) и непустой у произвольных файлов (`kind=file`),
+например `"quarterly-report.pdf"`. Имя обрезается до 255 символов.
 
 ### `POST /api/messages/`
 
@@ -284,9 +296,9 @@ WebSocket, если тот в онлайне.
 }
 ```
 
-`attachment_id` опционален. Для сообщения «только картинка» клиент
-шлёт seal'ку от строки из одного пробела (Pydantic требует
-непустой шифртекст).
+`attachment_id` опционален. Для сообщения «только вложение, без
+текста» клиент шлёт seal'ку от строки из одного пробела (Pydantic
+требует непустой шифртекст).
 
 **Ответ** — `201 Created`, тело `MessageOut`.
 
@@ -353,22 +365,30 @@ curl -s "http://localhost:8000/api/messages/?peer_id=2&limit=100&before_id=842" 
 
 ---
 
-## Вложения (картинки)
+## Вложения
 
-Картинки шифруются и подписываются на сервере по той же схеме, что и
+Вложения бывают двух видов — картинки и произвольные файлы. И те, и
+другие шифруются и подписываются на сервере по той же схеме, что и
 текст: GOST 28147-89 в CTR + ГОСТ 34.10 над `(encrypted || nonce)`.
-Хранятся в таблице `attachments`. Для отправки картинки клиент:
+Хранятся в одной таблице `attachments`. Чтобы отправить вложение, клиент:
 
 1. Загружает файл через `POST /api/messages/upload` — получает
    `attachment_id`.
 2. Делает обычный `POST /api/messages/` с `attachment_id` (и
    опционально текстом-подписью).
 
-Поддерживаются `image/jpeg`, `image/png`, `image/webp`, `image/gif`.
-Лимит — 5 МБ. На клиенте перед отправкой большие фото сжимаются до
-JPEG 85% / 2000 px по большей стороне (см.
+Виды различаются полем `kind` в форме загрузки:
+
+| `kind` | Разрешённые mime | Что хранит |
+| --- | --- | --- |
+| `image` | белый список `image/jpeg`, `image/png`, `image/webp`, `image/gif` | без `original_filename`; превью рисуется по mime |
+| `file` | всё, **кроме** чёрного списка (`text/html`, `application/xhtml+xml`, `application/javascript`, `text/javascript`, `application/x-msdownload`, `application/x-msdos-program`, `application/x-sh`) | сохраняет `original_filename` (до 255 символов) и подставляет его в `Content-Disposition` при отдаче |
+
+Лимит — 5 МБ для обоих видов. На клиенте перед отправкой большие фото
+сжимаются до JPEG 85 % / 2000 px по большей стороне (см.
 [`frontend/src/lib/image.js`](../frontend/src/lib/image.js)) — это
-снижает нагрузку на CPU-bound шифрование на сервере.
+снижает нагрузку на CPU-bound шифрование на сервере. Файлы (`kind=file`)
+уходят как есть.
 
 ### `POST /api/messages/upload`
 
@@ -376,21 +396,49 @@ JPEG 85% / 2000 px по большей стороне (см.
 
 * `recipient_id` — `int`
 * `sender_private_key_hex` — `str` (32 байта в hex)
+* `kind` — `"image"` (по умолчанию) или `"file"`
 * `file` — бинарь
 
-**Ответ** — `AttachmentSummary` (`id`, `mime_type`, `size_bytes`).
-До линковки с сообщением вложение остаётся «orphan'ом» в БД, на
-ttl-cleanup не рассчитан.
+Если `Content-Type` у файла не задан (например, curl без `-H` или
+редкое расширение) — сервер подставляет `application/octet-stream`,
+чтобы валидация не отрезала валидную загрузку. Имя файла
+(`file.filename`) сохраняется в `original_filename` **только** для
+`kind=file`; у картинок оно игнорируется.
+
+**Ответ** — `AttachmentSummary` (`id`, `mime_type`, `size_bytes`,
+`original_filename`). До линковки с сообщением вложение остаётся
+«orphan'ом» в БД, на ttl-cleanup не рассчитан.
+
+Пример загрузки файла через curl:
+
+```bash
+curl -X POST "http://localhost:8000/api/messages/upload" \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "recipient_id=2" \
+    -F "sender_private_key_hex=$PRIV" \
+    -F "kind=file" \
+    -F "file=@./quarterly-report.pdf"
+```
 
 ### `GET /api/messages/attachment/{attachment_id}`
 
 Возвращает расшифрованные байты вложения (`Content-Type` соответствует
 mime). Доступно только участникам разговора (sender или recipient).
-Заголовок `X-Signature-Valid: 0|1` — статус проверки подписи (контент
-всё равно отдаётся, но клиент покажет ⚠ если `0`).
+
+Заголовки ответа:
+
+| Заголовок | Значение |
+| --- | --- |
+| `Content-Type` | сохранённый `mime_type` вложения |
+| `Cache-Control` | `private, max-age=86400` |
+| `X-Signature-Valid` | `1` — подпись валидна, `0` — нет (контент всё равно отдаётся; клиент рисует ⚠) |
+| `X-Content-Type-Options` | `nosniff` — запрещает браузеру угадывать тип; иначе старый Edge/IE мог бы интерпретировать blob с HTML-тегами как `text/html` в обход `Content-Disposition` |
+| `Content-Disposition` | `inline` для `image/*`; `attachment; filename="…"; filename*=UTF-8''…` для всего остального — RFC 5987 кодировка имени, чтобы кириллица доехала до диалога «Сохранить как» |
 
 Браузер не умеет передавать `Authorization` через `<img src=...>`, так
-что фронт качает blob через `fetch` и использует `URL.createObjectURL`.
+что фронт качает blob через `fetch` и использует `URL.createObjectURL`
+(для картинок — через [`AttachmentImage.svelte`](../frontend/src/components/AttachmentImage.svelte),
+для файлов — через [`AttachmentFile.svelte`](../frontend/src/components/AttachmentFile.svelte)).
 
 ---
 
