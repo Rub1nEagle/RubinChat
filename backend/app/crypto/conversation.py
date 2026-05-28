@@ -1,4 +1,4 @@
-"""Detuerministic conversation key shared between two users.
+"""Deterministic conversation key shared between two users.
 
 Чисто учебный шорткат: Streebog-256 от строки `gost-demo-conv:lo:hi`,
 где lo/hi — отсортированные id пользователей. Тот же ключ выводят и
