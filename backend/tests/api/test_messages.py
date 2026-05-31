@@ -144,7 +144,8 @@ async def test_replay_same_nonce_rejected(client, two_users) -> None:
     r1 = await client.post("/api/messages/", headers=alice["headers"], json=payload)
     assert r1.status_code == 201
     r2 = await client.post("/api/messages/", headers=alice["headers"], json=payload)
-    assert r2.status_code == 400
+    assert r2.status_code == 409
+    assert "replay" in r2.json()["detail"]
 
 
 # ── pagination ───────────────────────────────────────────────────────────

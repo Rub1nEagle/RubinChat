@@ -18,7 +18,7 @@ from ...schemas.message import (
 from ...services import attachment as attachment_service
 from ...services import message as message_service
 from ...services.attachment import AttachmentError
-from ...services.message import MessageError
+from ...services.message import MessageError, ReplayError
 from ...websocket.manager import manager
 from ..deps import current_user
 
@@ -33,6 +33,8 @@ async def send_message(
 ) -> MessageOut:
     try:
         msg = await message_service.store_message(session, me, payload)
+    except ReplayError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except MessageError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     await manager.deliver(msg.recipient_id, msg)
@@ -64,6 +66,8 @@ async def list_conversations(
 
 def _http_from_message_error(exc: MessageError) -> HTTPException:
     text = str(exc)
+    if isinstance(exc, ReplayError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=text)
     if "not found" in text:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=text)
     if "only the sender" in text:

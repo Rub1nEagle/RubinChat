@@ -30,6 +30,16 @@ class MessageError(Exception):
     """Raised on validation, signature, or authorization failure."""
 
 
+class ReplayError(MessageError):
+    """Повтор уже виденного nonce (anti-replay).
+
+    Подкласс MessageError, чтобы существующие блоки `except MessageError`
+    продолжали ловить его как раньше. Слой роутов выделяет его отдельно и
+    мапит в HTTP 409 Conflict — replay семантически конфликт с уже
+    виденным состоянием, а не некорректный запрос.
+    """
+
+
 class _NonceCache:
     """Tiny in-memory anti-replay cache, sliding by wall clock."""
 
@@ -108,7 +118,7 @@ async def store_message(
     )
 
     if not _nonce_cache.remember(nonce):
-        raise MessageError("nonce replay detected")
+        raise ReplayError("nonce replay detected")
 
     recipient = await session.get(User, payload.recipient_id)
     if recipient is None:
@@ -156,7 +166,7 @@ async def edit_message(
     )
 
     if not _nonce_cache.remember(nonce):
-        raise MessageError("nonce replay detected")
+        raise ReplayError("nonce replay detected")
 
     if not await provider.verify(encrypted + nonce, signature, sender.public_key):
         raise MessageError("signature verification failed")

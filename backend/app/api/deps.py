@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,19 +11,24 @@ from ..database.session import get_db
 from ..models import User
 from ..services import user as user_service
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+# HTTPBearer (а не OAuth2PasswordBearer): логин у нас принимает JSON, а не
+# OAuth2-форму, поэтому встроенный диалог password-flow в Swagger не
+# работал бы. HTTPBearer даёт в «Authorize» одно поле — туда вставляется
+# готовый access_token из ответа /api/auth/login.
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def current_user(
-    token: str | None = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     session: AsyncSession = Depends(get_db),
 ) -> User:
-    if token is None:
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    token = credentials.credentials
     try:
         payload = decode_access_token(token)
         user_id = int(payload["sub"])
