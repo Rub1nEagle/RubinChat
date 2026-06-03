@@ -793,7 +793,7 @@
                 <div class="text-center text-tg-muted px-6">
                     <div class="text-4xl mb-3">💬</div>
                     <div class="text-base">Выберите собеседника слева</div>
-                    <div class="text-xs mt-1">Сообщения шифруются и подписываются на стороне клиента</div>
+                    <div class="text-xs mt-1">Сообщения шифруются и подписываются по ГОСТ</div>
                 </div>
             </div>
         {/if}

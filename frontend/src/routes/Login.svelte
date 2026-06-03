@@ -42,7 +42,7 @@
     }
 </script>
 
-<AuthLayout title="Вход в RubinChat" subtitle="Защищённый чат с шифрованием на стороне клиента">
+<AuthLayout title="Вход в RubinChat" subtitle="Защищённый чат на ГОСТ-криптографии">
     <form on:submit|preventDefault={submit} class="space-y-3">
         <label class="block">
             <span class="text-xs uppercase tracking-wider text-tg-muted">Имя пользователя</span>

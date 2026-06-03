@@ -72,11 +72,6 @@
             </div>
         </label>
 
-        <p class="text-xs text-tg-muted leading-relaxed">
-            Приватный ключ зашифровывается вашим паролем; сервер хранит только
-            bcrypt-хеш и не способен восстановить ключ без вашего повторного входа.
-        </p>
-
         {#if error}
             <p class="text-sm text-tg-danger" in:fade={{ duration: 150 }}>{error}</p>
         {/if}

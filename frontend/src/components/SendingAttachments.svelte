@@ -11,7 +11,7 @@
     function statusLabel(it) {
         if (it.status === "error") return `ошибка${it.error ? `: ${it.error}` : ""}`;
         if (it.status === "uploading") return `Фото отправляется… ${it.progress ?? 0}%`;
-        if (it.status === "sealing") return "шифрование на сервере…";
+        if (it.status === "sealing") return "шифрование…";
         if (it.status === "sending") return "отправка…";
         return "";
     }
